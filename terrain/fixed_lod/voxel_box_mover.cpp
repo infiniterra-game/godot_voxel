@@ -166,7 +166,7 @@ bool boxcast_down(Span<const AABB> aabbs, Vector2 box_pos, Vector2 box_size, rea
 		if (Rect2(box_pos, box_size).intersects(Rect2(get_xz(aabb.position), get_xz(aabb.size)))) {
 			const real_t box_top = aabb.position.y + aabb.size.y;
 			if (hit) {
-				max_y = math::max(box_top, max_y);
+				max_y = math::min(box_top, max_y);
 			} else {
 				max_y = box_top;
 			}
@@ -302,8 +302,25 @@ Vector3 VoxelBoxMover::get_motion(Vector3 p_pos, Vector3 p_motion, AABB p_aabb, 
 				// exactly on top of the stair, gameplay code could do some additional calculations with that motion
 				// (converting it to velocity?) which may induce precision errors causing the box to fall through.
 				const real_t epsilon = 0.0001f;
+
+				const AABB sh_box(
+						Vector3(box.position.x, hit_y + epsilon, box.position.z), aabb.size
+				);
+				const AABB sh_expanded_box = expand_with_vector(sh_box, motion);
+
+				static thread_local StdVector<AABB> sh_colliding_boxes;
+				StdVector<AABB> &sh_potential_boxes = sh_colliding_boxes;
+				sh_potential_boxes.clear();
+
+				// Collect potential collisions with the terrain (broad phase)
+				// TODO If motion is really big, we may want something more optimal or reject it
+				collect_boxes(p_terrain, sh_expanded_box, _collision_mask, sh_potential_boxes);
+
+				// Calculate collisions (narrow phase)
+				Vector3 sh_slided_motion = zylann::voxel::get_motion(sh_box, motion, to_span(sh_potential_boxes));
+
 				const AABB hyp_box(
-						Vector3(box.position.x + motion.x, hit_y + epsilon, box.position.z + motion.z), box.size
+						Vector3(box.position.x + sh_slided_motion.x, hit_y + epsilon, box.position.z + sh_slided_motion.z), box.size
 				);
 
 				potential_boxes.clear();
